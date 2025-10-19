@@ -61,12 +61,12 @@ CLOUDINARY_URL=your_cloudinary_url   # optional
 #### Backend
 ```bash
 cd backend
-npm start
+npm run dev
 ```
 #### Frontend
 ```bash
 cd frontend
-npm run dev
+npm start
 ```
 
 ---
