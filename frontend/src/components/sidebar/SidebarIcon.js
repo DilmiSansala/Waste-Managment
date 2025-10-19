@@ -26,7 +26,7 @@ const LABELS = {
   dashboard: "Dashboard",
   profile: "Profile",
   payment: "Payment",
-  requests: "Requests",
+  requests: "New Bin Requests",
   progress: "Progress",
   history: "Collection History",
   logout: "Logout",

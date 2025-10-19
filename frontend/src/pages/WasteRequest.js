@@ -116,7 +116,7 @@ function WasteRequest({ onRequestCreated }) {
         </div>
         <div className="content-wrapper">
           <div className="form-container">
-            <h2>Request Waste Collection</h2>
+            <h2>Request Waste Collection Bin</h2>
             {error && <p className="error-message">{error}</p>}
             {successMessage && <p className="success-message">{successMessage}</p>}
             <form onSubmit={handleFormSubmit} className="waste-request-form">
@@ -208,7 +208,7 @@ function WasteRequest({ onRequestCreated }) {
 
               <div className="form-group">
                 <button type="submit" className="submit-button">
-                  Submit Request
+                  Submit Request Bin
                 </button>
               </div>
             </form>
