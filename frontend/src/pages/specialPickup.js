@@ -12,7 +12,7 @@ import withAuth from "../hoc/withAuth";
 const SPECIAL_IMAGE_URL =
   "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?ixlib=rb-4.1.0&auto=format&fit=crop&w=1770&q=80";
 
-function WasteRequest({ onRequestCreated }) {
+function SpecialPickup({ onRequestCreated }) {
   const [form, setForm] = useState({
     wasteType: "",
     quantity: 1,
@@ -70,10 +70,9 @@ function WasteRequest({ onRequestCreated }) {
       const payload = {
         wasteType: form.wasteType,
         quantity: Number(form.quantity),
-        collectionDate:
-          form.collectionDate instanceof Date
-            ? form.collectionDate.toISOString()
-            : form.collectionDate,
+         collectionDate: form.collectionDate ? 
+    new Date(form.collectionDate).toLocaleDateString('en-US') : 
+    null,
         collectionTime: form.collectionTime, // now a slot string
         collectionCenter: form.collectionCenter || undefined,
       };
@@ -82,7 +81,7 @@ function WasteRequest({ onRequestCreated }) {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setSuccessMessage("Waste request created successfully!");
+      setSuccessMessage("Special pickup created successfully!");
       setForm({
         wasteType: "",
         quantity: 1,
@@ -92,10 +91,10 @@ function WasteRequest({ onRequestCreated }) {
       });
       if (onRequestCreated) onRequestCreated();
     } catch (err) {
-      console.error("Error creating waste request:", err);
+      console.error("Error creating Special pickup:", err);
       setError(
         err.response?.data?.message ||
-          "Error creating waste request. Please try again."
+          "Error creating Special pickup. Please try again."
       );
     }
   };
@@ -309,6 +308,10 @@ function WasteRequest({ onRequestCreated }) {
                     placeholderText="Select a date"
                     className="react-datepicker-input"
                     required
+                     timeZone="local"
+    minDate={new Date()}
+    showTimeSelect={false}
+    locale="en-US"
                   />
                 </div>
 
@@ -362,4 +365,4 @@ function WasteRequest({ onRequestCreated }) {
   );
 }
 
-export default withAuth(WasteRequest);
+export default withAuth(SpecialPickup);
