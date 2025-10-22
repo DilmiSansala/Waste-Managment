@@ -1,0 +1,45 @@
+.veh-wrap{padding:24px;}
+.veh-title{margin:0 0 14px;}
+.veh-form{background:#fff;border:1px solid #eee;padding:16px;border-radius:12px;margin-bottom:18px;}
+.veh-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+.veh-field label{display:block;font-weight:600;margin-bottom:6px;}
+.veh-field input,.veh-field select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;}
+.veh-actions{margin-top:12px;display:flex;gap:10px;}
+.veh-btn{padding:10px 14px;border:none;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+.veh-btn.secondary{background:#6b7280}
+.veh-btn.danger{background:#dc2626}
+.veh-btn.small{padding:8px 10px; min-width:78px;}
+.veh-error{margin-top:8px;color:#b91c1c}
+
+.veh-toolbar{display:flex;justify-content:space-between;align-items:center;margin:10px 0 8px;}
+.veh-filter,.veh-search{display:flex;gap:8px;align-items:center}
+.veh-search input,.veh-filter select{padding:8px 10px;border:1px solid #ddd;border-radius:8px;}
+
+.veh-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden}
+.veh-table th,.veh-table td{padding:12px 12px;border-bottom:1px solid #f0f0f0;text-align:left; vertical-align:middle;}
+.veh-table thead tr{background:#f8fafc}
+.veh-table tbody tr:hover{background:#fafafa}
+
+/* ✅ Space Edit/Delete buttons nicely */
+.veh-actions-inline{
+  display:inline-flex;
+  gap:12px;              /* controls spacing between buttons */
+  align-items:center;
+}
+
+/* Optional: keep action column tidy on narrow tables */
+.veh-table td:last-child .veh-actions-inline{
+  justify-content:flex-start;
+}
+
+/* Empty state */
+.veh-empty{padding:24px;background:#fff;border:1px dashed #ddd;border-radius:12px}
+
+/* Responsive tweaks */
+@media (max-width: 900px){
+  .veh-grid{grid-template-columns:1fr 1fr;}
+}
+@media (max-width: 640px){
+  .veh-grid{grid-template-columns:1fr;gap:10px;}
+  .veh-toolbar{flex-direction:column;align-items:stretch;gap:10px;}
+}
