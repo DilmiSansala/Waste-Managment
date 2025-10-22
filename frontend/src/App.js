@@ -173,6 +173,7 @@ import CollectorRoutesLayout from "./routes/collectorRoutes"; // Layout with hea
 import CollectorProgress from "./pages/collectorProgress";
 import CollectorSchedule from "./pages/collectorSchedule";
 import SpecialPickup from "./pages/specialPickup"
+import AdminVehicles from "./pages/AdminVehicles";
 
 function App() {
   return (
@@ -195,6 +196,7 @@ function App() {
               <Route path="/payment" element={<Payment />} />
               <Route path="/logout" element={<Logout />} /> 
               <Route path="/specialPickups" element={<SpecialPickup />} /> 
+              
               
               
               <Route path="/schedulePage" element={<SchedulePage />} />{" "}
@@ -243,6 +245,20 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+
+<Route
+  path="/admin/vehicles"
+  element={
+    <ProtectedRoute>
+      <AdminVehicles />
+    </ProtectedRoute>
+  }
+/>
+
+
+
+
+
               {/* New Admin Routes for Scheduling */}
               <Route
                 path="/create-schedule"
