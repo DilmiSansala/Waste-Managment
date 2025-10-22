@@ -6,19 +6,27 @@ import AdminDashboardLayout from "../pages/AdminDashboardLayout";
 import ScheduleInfo from "../components/Schedule/ScheduleInfo";
 import CenterSelection from "../components/Schedule/CenterSelection";
 import CalendarComponent from "../components/Schedule/CalendarComponent";
-import "./SchedulePage.css"; // Custom CSS for additional styling
+import "./SchedulePage.css";
 import RequestList from "../components/Schedule/RequestList";
 
-// Main Schedule Page Component
+// ✅ Add local date helper here
+const toLocalYMD = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 const SchedulePage = () => {
   const [date, setDate] = useState(new Date());
   const [scheduledDates, setScheduledDates] = useState([]);
   const [scheduleInfo, setScheduleInfo] = useState(null);
   const [centers, setCenters] = useState([]);
   const [selectedCenter, setSelectedCenter] = useState("");
-  const [requests, setRequests] = useState([]); // State for requests
+  const [requests, setRequests] = useState([]);
+  const [specialPickupRequests, setSpecialPickupRequests] = useState([]);
 
-  // Fetch centers from the server
+  // Fetch centers
   useEffect(() => {
     const fetchCenters = async () => {
       try {
@@ -31,7 +39,7 @@ const SchedulePage = () => {
     fetchCenters();
   }, []);
 
-  // Fetch scheduled dates from the server
+  // Fetch scheduled dates
   useEffect(() => {
     const fetchScheduledDates = async () => {
       try {
@@ -47,6 +55,8 @@ const SchedulePage = () => {
           }));
 
           setScheduledDates(formattedDates);
+        } else {
+          setScheduledDates([]);
         }
       } catch (error) {
         console.error("Error fetching scheduled dates:", error);
@@ -54,6 +64,36 @@ const SchedulePage = () => {
     };
     fetchScheduledDates();
   }, [selectedCenter]);
+
+  // ✅ Replace with resilient fetch (local date, optional token, fallback)
+  const fetchSpecialPickupRequests = async (centerId, selectedDate) => {
+    try {
+      const token = localStorage.getItem("token");
+      const dateStr = toLocalYMD(selectedDate);
+
+      let url = `http://localhost:3050/api/specialPickup/byCenter/${centerId}?on=${dateStr}`;
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const res = await axios.get(url, { headers });
+      let data = Array.isArray(res.data) ? res.data : [];
+
+      if (data.length === 0) {
+        try {
+          const fallback = await axios.get(
+            `http://localhost:3050/api/specialPickup/getByCenter/${centerId}?date=${dateStr}`,
+            { headers }
+          );
+          if (Array.isArray(fallback.data)) data = fallback.data;
+        } catch {}
+      }
+
+      setSpecialPickupRequests(data);
+      console.debug("[SpecialPickup]", { centerId, dateStr, count: data.length });
+    } catch (error) {
+      console.error("Error fetching special pickup requests:", error);
+      setSpecialPickupRequests([]);
+    }
+  };
 
   // Fetch the requests for the selected schedule
   const fetchRequests = (schedule) => {
@@ -64,18 +104,31 @@ const SchedulePage = () => {
     }
   };
 
-  const handleDateClick = (selectedDate) => {
+  const handleDateClick = async (selectedDate) => {
     const selectedSchedule = scheduledDates.find(
       (scheduledDate) => scheduledDate.date === selectedDate.toDateString()
     );
+
     if (selectedSchedule) {
       setScheduleInfo(selectedSchedule.info);
-      fetchRequests(selectedSchedule.info); // Fetch requests based on the selected schedule
+      fetchRequests(selectedSchedule.info);
     } else {
       setScheduleInfo(null);
-      setRequests([]); // Clear requests if no schedule is selected
+      setRequests([]);
+    }
+
+    if (selectedCenter) {
+      await fetchSpecialPickupRequests(selectedCenter, selectedDate);
     }
   };
+
+  // ✅ Also update special pickups when center OR date changes
+  useEffect(() => {
+    if (selectedCenter && date) {
+      fetchSpecialPickupRequests(selectedCenter, date);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCenter, date]);
 
   const tileClassName = ({ date }) => {
     if (
@@ -90,7 +143,6 @@ const SchedulePage = () => {
 
   return (
     <AdminDashboardLayout>
-      {/* Header and Create Button */}
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-4xl font-semibold text-green-900">
           Manage Schedules
@@ -103,16 +155,13 @@ const SchedulePage = () => {
         </Link>
       </div>
 
-      {/* Select Center */}
       <CenterSelection
         centers={centers}
         selectedCenter={selectedCenter}
         setSelectedCenter={setSelectedCenter}
       />
 
-      {/* Main Container */}
       <div className="max-w-7xl mx-auto p-10 bg-white rounded-lg shadow-lg flex flex-col md:flex-row justify-between gap-8">
-        {/* Calendar Component */}
         <div className="md:w-1/2">
           <CalendarComponent
             date={date}
@@ -123,7 +172,6 @@ const SchedulePage = () => {
           />
         </div>
 
-        {/* Schedule Info Section */}
         <div className="md:w-1/2 bg-green-50 p-6 rounded-lg shadow-inner border border-green-200">
           {scheduleInfo ? (
             <ScheduleInfo scheduleInfo={scheduleInfo} />
@@ -135,16 +183,81 @@ const SchedulePage = () => {
         </div>
       </div>
 
-      {/* Requests Section */}
+      {requests.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-3xl font-semibold text-green-900 mb-6">
+            Regular Waste Collection Requests
+          </h2>
+          <RequestList requests={requests} />
+        </div>
+      )}
+
       <div className="mt-10">
         <h2 className="text-3xl font-semibold text-green-900 mb-6">
-          Waste Collection Requests
+          Special Pickup Requests
         </h2>
-        {requests.length > 0 ? (
-          <RequestList requests={requests} />
+        {specialPickupRequests.length > 0 ? (
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-green-100">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      Resident
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      Waste Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      Quantity (kg)
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      Collection Time
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {specialPickupRequests.map((request) => (
+                    <tr key={request._id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {request.resident?.name || "N/A"}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {request.resident?.email || ""}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{request.wasteType}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{request.quantity}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{request.collectionTime}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          request.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                          request.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                          request.status === 'collected' ? 'bg-green-100 text-green-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {request.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
           <p className="text-gray-600 text-lg font-medium">
-            No requests available for the selected schedule.
+            No special pickup requests for the selected date.
           </p>
         )}
       </div>
