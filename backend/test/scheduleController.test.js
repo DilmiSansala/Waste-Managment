@@ -31,7 +31,7 @@ describe('Schedule Controller Tests', () => {
     it('should return 400 if required fields are missing', async () => {
       const response = await request(app).post('/schedules').send({
         collectorId: '1',
-        centerId: '',
+        centerId: '', // missing
         vehicleId: '3',
         date: '2024-10-01',
         time: '09:00 AM',
@@ -39,14 +39,12 @@ describe('Schedule Controller Tests', () => {
       });
 
       expect(response.status).toBe(400);
+      // Match the actual controller message:
       expect(response.body).toEqual({
-        message: 'All fields and selected requests are required.',
+        message: 'collectorId, centerId, vehicleId, date and time are required.',
       });
     });
-
-
   });
- 
 
   describe('PATCH /schedules/:scheduleId/accept', () => {
     it('should update the schedule status to accepted', async () => {

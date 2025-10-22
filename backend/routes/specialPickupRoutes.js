@@ -1,22 +1,20 @@
 const express = require("express");
 const router = express.Router();
-const specialWasteRequestController = require("../controllers/specialPickupController");
-
+const sp = require("../controllers/specialPickupController");
 const { protect } = require("../middleware/authMiddleware");
 
-// Protected routes
-router.post("/", protect, specialWasteRequestController.createWasteRequest);
-router.get("/my", protect, specialWasteRequestController.getUserWasteRequests);
+// ----- Fixed paths FIRST -----
+router.post("/", protect, sp.createSpecialPickup);
+router.get("/my", protect, sp.getUserSpecialPickups);
 
-router.get("/requests", specialWasteRequestController.getRequestsByFilter);
-router.put("/requests/:id/collected", specialWasteRequestController.markAsCollected);
-router.put("/requests/:id/pending", specialWasteRequestController.markAsPending);
+// Optional: list all
+router.get("/", sp.getAllRequest);
 
-router.get("/filter", specialWasteRequestController.getRequestsByFilter);
-router.put("/:id/collected", specialWasteRequestController.markAsCollected);
-router.put("/:id/pending", specialWasteRequestController.markAsPending);
-router.get("/", specialWasteRequestController.getAllRequest);
+// ----- Param routes LAST -----
+router.get("/byCenter/:centerId", sp.getRequestsByCenter);
+router.put("/:id/collected", sp.markAsCollected);
+router.put("/:id/pending", sp.markAsPending);
+router.put("/:id", protect, sp.updateSpecialPickup);
+router.delete("/:id", protect, sp.deleteSpecialPickup);
 
-router.get("/byCenter/:centerId", specialWasteRequestController.getRequestsByCenter);
-
-module.exports = router; // Make sure to export the router
+module.exports = router;

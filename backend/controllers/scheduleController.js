@@ -1,7 +1,8 @@
 // backend/controllers/scheduleController.js
 const ScheduleFactory = require("../factories/ScheduleFactory");
 const ScheduleRepository = require("../repositories/ScheduleRepository");
-const WasteRequest = require("../models/WasteRequest");
+const SpecialPickup = require("../models/SpecialPickup");
+
 const ScheduleService = require("../services/ScheduleService");
 
 exports.createSchedule = async (req, res) => {
@@ -45,11 +46,11 @@ exports.createSchedule = async (req, res) => {
     }
 
     // Ensure every selected request exists AND is still pending
-    const requests = await WasteRequest.find({
+    const requests = await SpecialPickup.find({
       _id: { $in: selectedRequests },
       status: "pending",
     });
-
+console.log("Validated Requests:", requests);
     if (requests.length !== selectedRequests.length) {
       return res.status(400).json({
         message: "Some selected requests are invalid or not pending.",
@@ -57,7 +58,7 @@ exports.createSchedule = async (req, res) => {
     }
 
     // Mark selected requests as scheduled
-    await WasteRequest.updateMany(
+    await SpecialPickup.updateMany(
       { _id: { $in: selectedRequests } },
       { $set: { status: "scheduled" } }
     );

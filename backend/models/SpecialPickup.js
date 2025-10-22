@@ -1,4 +1,4 @@
-// backend/models/WasteRequest.js
+
 const mongoose = require('mongoose');
 
 const SpecialPickupSchema = new mongoose.Schema({
@@ -9,10 +9,10 @@ const SpecialPickupSchema = new mongoose.Schema({
   },
   wasteType: { type: String, required: true },
 
-  // ✅ make numeric
+  // make numeric
   quantity: { type: Number, required: true },
 
-  // ✅ link to a center (optional for older docs)
+  //  link to a center (optional for older docs)
   collectionCenter: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CollectionCenter',
@@ -29,4 +29,4 @@ const SpecialPickupSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('SpecialPickupSchema', SpecialPickupSchema);
+module.exports = mongoose.model('SpecialPickup', SpecialPickupSchema);

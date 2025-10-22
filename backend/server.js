@@ -72,13 +72,14 @@ const authRoutes = require("./routes/authRoutes");
 const centerRoutes = require("./routes/centerRoutes");
 const residentRoutes = require("./routes/residentRoutes");
 const collectorRoutes = require("./routes/collectorRoutes");
+const specialPickupRoutes = require("./routes/specialPickupRoutes")
 const requestRoutes = require("./routes/wasteRequestRoutes");
 const issueRoutes = require("./routes/issueRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 
 const scheduleRoutes = require("./routes/scheduleRoutes");
 const vehicleRoutes = require("./routes/vehicleRoutes");
-const specialPickupRoutes = require("./routes/specialPickupRoutes")
+
 const db = require("./db");
 
 dotenv.config(); // Load environment variables

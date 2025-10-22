@@ -1,85 +1,66 @@
-const SpecialPickup = require("../models/SpecialPickup");
-const Resident = require("../models/Resident");
 const mongoose = require("mongoose");
 const moment = require("moment");
+const SpecialPickup = require("../models/SpecialPickup");
+const CollectionCenter = require("../models/Center");
 
-// Create a new waste request
-exports.createWasteRequest = async (req, res) => {
+const ALLOWED_STATUSES = new Set(["pending", "scheduled", "collected", "canceled"]);
+const isValidDate = (d) => d instanceof Date && !isNaN(d.getTime());
+
+// POST /api/specialPickup
+async function createSpecialPickup(req, res) {
   try {
-    // Check if the database connection is ready
     if (mongoose.connection.readyState !== 1) {
-      return res
-        .status(500)
-        .json({ message: "Database connection is not established." });
+      return res.status(500).json({ message: "Database connection is not established." });
     }
 
-    const { wasteType, quantity, collectionDate, collectionTime,collectionCenter  } = req.body;
+    const { wasteType, quantity, collectionDate, collectionTime, collectionCenter } = req.body;
 
-    // Validate request data
-    if (!wasteType || !quantity || !collectionDate || !collectionTime) {
+    if (!wasteType || quantity == null || !collectionDate || !collectionTime) {
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    // Create a new waste request
-    const newWasteRequest = new SpecialPickup({
-       resident: req.user.id,
-  wasteType,
-  quantity: Number(quantity),             // ← cast to number
-  collectionCenter: collectionCenter || undefined, // ← store center id when sent
-  collectionDate,
-  collectionTime
+      // Convert local date to UTC
+    const localDate = new Date(collectionDate);
+    const utcDate = new Date(Date.UTC(
+      localDate.getFullYear(),
+      localDate.getMonth(),
+      localDate.getDate()
+    ));
+    const doc = new SpecialPickup({
+      resident: req.user.id,
+      wasteType,
+      quantity: Number(quantity),
+      collectionCenter: collectionCenter || undefined,
+      collectionDate: utcDate,
+      collectionTime,
     });
 
-    await newWasteRequest.save();
-    res.status(201).json({ message: "Waste request created successfully." });
+    await doc.save();
+    return res.status(201).json({ message: "Waste request created successfully." });
   } catch (error) {
     console.error("Error creating waste request:", error);
-    res.status(500).json({ message: "Error creating waste request.", error });
+    return res.status(500).json({ message: "Error creating waste request.", error });
   }
-};
+}
 
-// Get all waste requests for the logged-in user
-exports.getUserWasteRequests = async (req, res) => {
+// GET /api/specialPickup/my
+async function getUserSpecialPickups(req, res) {
   try {
-    // Check if the database connection is ready
     if (mongoose.connection.readyState !== 1) {
-      return res
-        .status(500)
-        .json({ message: "Database connection is not established." });
+      return res.status(500).json({ message: "Database connection is not established." });
     }
 
-    const requests = await SpecialPickup.find({ resident: req.user.id }).sort({
-      createdAt: -1,
-    });
-    res.status(200).json(requests);
+    const requests = await SpecialPickup.find({ resident: req.user.id })
+      .sort({ createdAt: -1 });
+    return res.status(200).json(requests);
   } catch (error) {
     console.error("Error fetching waste requests:", error);
-    res.status(500).json({ message: "Error fetching waste requests.", error });
+    return res.status(500).json({ message: "Error fetching waste requests.", error });
   }
-};
+}
 
-// Get waste progress data
-exports.getWasteProgress = async (req, res) => {
-  try {
-    // Check if the database connection is ready
-    if (mongoose.connection.readyState !== 1) {
-      return res
-        .status(500)
-        .json({ message: "Database connection is not established." });
-    }
-
-    const wasteRequests = await SpecialPickup.find();
-    res.status(200).json(wasteRequests);
-  } catch (error) {
-    console.error("Error fetching waste progress data:", error);
-    res
-      .status(500)
-      .json({ message: "Error fetching waste progress data.", error });
-  }
-};
-
-// Get requests based on filter (today, yesterday, week, month, upcoming)
-exports.getRequestsByFilter = async (req, res) => {
+// GET /api/specialPickup/filter?filter=today|yesterday|week|month|upcoming
+async function getRequestsByFilter(req, res) {
   const { filter } = req.query;
   const today = moment().startOf("day");
   const tomorrow = moment(today).add(1, "days");
@@ -91,48 +72,19 @@ exports.getRequestsByFilter = async (req, res) => {
 
   switch (filter) {
     case "today":
-      dateFilter = {
-        collectionDate: {
-          // Includes all times today (from 00:00 to 23:59)
-          $gte: today.toDate(),
-          $lt: tomorrow.toDate(),
-        },
-      };
+      dateFilter = { collectionDate: { $gte: today.toDate(), $lt: tomorrow.toDate() } };
       break;
     case "yesterday":
-      dateFilter = {
-        collectionDate: {
-          // Only includes yesterday's date
-          $gte: yesterday.toDate(),
-          $lt: today.toDate(),
-        },
-      };
+      dateFilter = { collectionDate: { $gte: yesterday.toDate(), $lt: today.toDate() } };
       break;
     case "week":
-      dateFilter = {
-        collectionDate: {
-          // Includes requests from the start of the week to tomorrow (this ensures "today" is included)
-          $gte: weekStart.toDate(),
-          $lt: tomorrow.toDate(),
-        },
-      };
+      dateFilter = { collectionDate: { $gte: weekStart.toDate(), $lt: tomorrow.toDate() } };
       break;
     case "month":
-      dateFilter = {
-        collectionDate: {
-          // Includes requests from the start of the month to tomorrow
-          $gte: monthStart.toDate(),
-          $lt: tomorrow.toDate(),
-        },
-      };
+      dateFilter = { collectionDate: { $gte: monthStart.toDate(), $lt: tomorrow.toDate() } };
       break;
     case "upcoming":
-      dateFilter = {
-        // Includes requests starting from tomorrow onwards
-        collectionDate: {
-          $gte: tomorrow.toDate(),
-        },
-      };
+      dateFilter = { collectionDate: { $gte: tomorrow.toDate() } };
       break;
     default:
       return res.status(400).json({ message: "Invalid filter" });
@@ -140,87 +92,187 @@ exports.getRequestsByFilter = async (req, res) => {
 
   try {
     const requests = await SpecialPickup.find(dateFilter).populate("resident");
-    res.json(requests);
+    return res.json(requests);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching requests", error });
+    return res.status(500).json({ message: "Error fetching requests", error });
   }
-};
+}
 
-// Mark the request as collected
-exports.markAsCollected = async (req, res) => {
+// PATCH /api/specialPickup/:id/collected
+async function markAsCollected(req, res) {
   const { id } = req.params;
-
   try {
     const request = await SpecialPickup.findById(id);
-    if (!request) {
-      return res.status(404).json({ message: "Request not found" });
-    }
-
-    // Update the status to 'collected'
+    if (!request) return res.status(404).json({ message: "Request not found" });
     request.status = "collected";
     await request.save();
-
-    res.status(200).json({ message: "Request marked as collected" });
+    return res.status(200).json({ message: "Request marked as collected" });
   } catch (error) {
-    res.status(500).json({ message: "Error updating request status", error });
+    return res.status(500).json({ message: "Error updating request status", error });
   }
-};
+}
 
-// Mark the request as pending (if unchecked)
-exports.markAsPending = async (req, res) => {
+// PATCH /api/specialPickup/:id/pending
+async function markAsPending(req, res) {
   const { id } = req.params;
-
   try {
     const request = await SpecialPickup.findById(id);
-    if (!request) {
-      return res.status(404).json({ message: "Request not found" });
-    }
-
-    // Update the status to 'pending'
+    if (!request) return res.status(404).json({ message: "Request not found" });
     request.status = "pending";
     await request.save();
-
-    res.status(200).json({ message: "Request marked as pending" });
+    return res.status(200).json({ message: "Request marked as pending" });
   } catch (error) {
-    res.status(500).json({ message: "Error updating request status", error });
+    return res.status(500).json({ message: "Error updating request status", error });
   }
-};
+}
 
-// get all request into the database
-exports.getAllRequest = async (req, res) => {
+// GET /api/specialPickup/all
+async function getAllRequest(req, res) {
   try {
     const requests = await SpecialPickup.find();
-    res.status(200).json(requests);
+    return res.status(200).json(requests);
   } catch (error) {
     console.error("Error fetching waste requests:", error);
-    res.status(500).json({ message: "Error fetching waste requests.", error });
+    return res.status(500).json({ message: "Error fetching waste requests.", error });
   }
-};
+}
 
-// Get all pending requests by collection center (centerId as ObjectId)
-exports.getRequestsByCenter = async (req, res) => {
+// GET /api/specialPickup/center/:centerId?on=YYYY-MM-DD&from=YYYY-MM-DD&to=YYYY-MM-DD&status=pending
+async function getRequestsByCenter(req, res) {
   const { centerId } = req.params;
+  const { on, from, to, status } = req.query;
 
   try {
     if (!centerId) {
       return res.status(400).json({ message: "Center ID is required." });
     }
 
-    // Support both legacy string and new ObjectId `collectionCenter`
+    // Support string or ObjectId equality for collectionCenter
     const orList = [{ collectionCenter: centerId }];
     if (mongoose.isValidObjectId(centerId)) {
       orList.push({ collectionCenter: new mongoose.Types.ObjectId(centerId) });
     }
 
-    const pendingRequests = await SpecialPickup.find({
-      $or: orList,
-      status: "pending",
-    }).populate("resident");
+    const filter = { $or: orList };
 
-    // ✅ 200, even when empty
-    return res.status(200).json(Array.isArray(pendingRequests) ? pendingRequests : []);
+    // Optional status filter
+    if (typeof status === "string" && ALLOWED_STATUSES.has(status)) {
+      filter.status = status;
+    }
+
+    // Date range helpers (UTC day windows)
+    const addOneDayUTC = (d) => {
+      const nd = new Date(d);
+      nd.setUTCDate(nd.getUTCDate() + 1);
+      return nd;
+    };
+
+    if (on) {
+      const start = new Date(`${on}T00:00:00.000Z`);
+      if (!isValidDate(start)) {
+        return res.status(400).json({ message: "Invalid 'on' date. Use YYYY-MM-DD." });
+      }
+      filter.collectionDate = { $gte: start, $lt: addOneDayUTC(start) };
+    } else if (from || to) {
+      const range = {};
+      if (from) {
+        const s = new Date(`${from}T00:00:00.000Z`);
+        if (!isValidDate(s)) return res.status(400).json({ message: "Invalid 'from' date. Use YYYY-MM-DD." });
+        range.$gte = s;
+      }
+      if (to) {
+        const e = new Date(`${to}T00:00:00.000Z`);
+        if (!isValidDate(e)) return res.status(400).json({ message: "Invalid 'to' date. Use YYYY-MM-DD." });
+        range.$lt = addOneDayUTC(e); // inclusive 'to' day
+      }
+      if (Object.keys(range).length) filter.collectionDate = range;
+    }
+
+    const requests = await SpecialPickup.find(filter).populate("resident");
+    return res.status(200).json(Array.isArray(requests) ? requests : []);
   } catch (error) {
-    console.error("Error fetching pending requests:", error);
-    return res.status(500).json({ message: "Error fetching pending requests." });
+    console.error("Error fetching requests by center:", error);
+    return res.status(500).json({ message: "Error fetching requests by center." });
   }
+}
+
+// DELETE /api/specialPickup/:id
+async function deleteSpecialPickup(req, res) {
+  try {
+    const { id } = req.params;
+    const doc = await SpecialPickup.findOneAndDelete({ _id: id, resident: req.user.id });
+    if (!doc) return res.status(404).json({ message: "Special pickup request not found." });
+    return res.status(200).json({ message: "Special pickup deleted successfully." });
+  } catch (err) {
+    console.error("Error deleting special pickup:", err);
+    return res.status(500).json({ message: "Error deleting special pickup.", error: err });
+  }
+}
+
+// PUT /api/specialPickup/:id
+async function updateSpecialPickup(req, res) {
+  try {
+    const { id } = req.params;
+    const { wasteType, quantity, collectionDate, collectionTime, status, collectionCenter } = req.body;
+
+    const update = {};
+    if (typeof wasteType !== "undefined") update.wasteType = wasteType;
+
+    if (typeof quantity !== "undefined") {
+      const qn = Number(quantity);
+      if (!Number.isFinite(qn) || qn < 0) {
+        return res.status(400).json({ message: "quantity must be a non-negative number" });
+      }
+      update.quantity = qn;
+    }
+
+    if (typeof collectionDate !== "undefined") update.collectionDate = collectionDate;
+    if (typeof collectionTime !== "undefined") update.collectionTime = collectionTime;
+
+    if (typeof status !== "undefined") {
+      if (!ALLOWED_STATUSES.has(status)) {
+        return res.status(400).json({ message: "Invalid status value." });
+      }
+      update.status = status;
+    }
+
+    if (typeof collectionCenter !== "undefined" && collectionCenter !== null && collectionCenter !== "") {
+      if (!mongoose.isValidObjectId(collectionCenter)) {
+        return res.status(400).json({ message: "Invalid collection center id." });
+      }
+      const validCenter = await CollectionCenter.findById(collectionCenter);
+      if (!validCenter) {
+        return res.status(400).json({ message: "Invalid collection center selected." });
+      }
+      update.collectionCenter = collectionCenter;
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ message: "No valid fields provided to update." });
+    }
+
+    const updated = await SpecialPickup.findOneAndUpdate(
+      { _id: id, resident: req.user.id }, // ownership
+      update,
+      { new: true }
+    );
+
+    if (!updated) return res.status(404).json({ message: "Special pickup request not found." });
+    return res.status(200).json(updated);
+  } catch (err) {
+    console.error("Error updating special pickup:", err);
+    return res.status(500).json({ message: "Error updating special pickup.", error: err });
+  }
+}
+
+module.exports = {
+  createSpecialPickup,
+  getUserSpecialPickups,
+  getRequestsByFilter,
+  markAsCollected,
+  markAsPending,
+  getAllRequest,
+  getRequestsByCenter,
+  deleteSpecialPickup,
+  updateSpecialPickup,
 };

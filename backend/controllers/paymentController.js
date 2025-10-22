@@ -1,7 +1,9 @@
 // controllers/paymentController.js
 const Payment = require("../models/Payment");
 const WasteRequest = require("../models/WasteRequest");
+const SpecialPickup = require("../models/SpecialPickup"); // ✅ add
 let stripeClient = null;
+
 const getStripe = () => {
   if (!stripeClient) {
     const Stripe = require("stripe");
@@ -10,34 +12,65 @@ const getStripe = () => {
   return stripeClient;
 };
 
-// Controlled logger: set environment variable SHOW_STRIPE_LOGS=true to enable these logs
-const shouldLog = process.env.SHOW_STRIPE_LOGS === 'true';
+// Controlled logger
+const shouldLog = process.env.SHOW_STRIPE_LOGS === "true";
 const log = (...args) => { if (shouldLog) console.log(...args); };
 const warn = (...args) => { if (shouldLog) console.warn(...args); };
 
-// Create Stripe Checkout Session for a single WasteRequest payment
+/* ----------------------------- helpers ------------------------------ */
+
+// Find a request by id in either collection
+async function getRequestById(id) {
+  let doc = await WasteRequest.findById(id);
+  if (doc) return { doc, kind: "normal" };
+
+  doc = await SpecialPickup.findById(id);
+  if (doc) return { doc, kind: "special" };
+
+  return { doc: null, kind: null };
+}
+
+// Mark the corresponding collection row paid
+async function markPaid(wasteRequestId, kind) {
+  if (!wasteRequestId) return;
+  if (kind === "special") {
+    await SpecialPickup.updateMany(
+      { _id: { $in: [wasteRequestId] } },
+      { $set: { status: "payment complete" } }
+    );
+  } else {
+    await WasteRequest.updateMany(
+      { _id: { $in: [wasteRequestId] } },
+      { $set: { status: "payment complete" } }
+    );
+  }
+}
+
+// one price table that covers normal + special
+const pricePerType = {
+  Glass: 15, Wood: 10, Hazardous: 60, Paper: 10, Metal: 20, Plastic: 30,
+  Organic: 30, Electronics: 50,
+  "Plastic - Special Pickup": 60, "Organic - Special Pickup": 60,
+  "Metal - Special Pickup": 40, "Paper - Special Pickup": 20,
+  "Glass - Special Pickup": 30, "Wood - Special Pickup": 20,
+  "Electronics - Special Pickup": 100, "Hazardous - Special Pickup": 120,
+};
+
+/* --------------------------- create session -------------------------- */
+// Create Stripe Checkout Session for a single request (normal or special)
 exports.createCheckoutSession = async (req, res) => {
-  const { residentId, wasteRequestId } = req.body;
+  const { residentId: residentIdFromBody, wasteRequestId } = req.body;
+
   try {
-    const wasteRequest = await WasteRequest.findById(wasteRequestId);
-    if (!wasteRequest) {
-      return res.status(404).json({ message: "Waste request not found" });
-    }
+    const { doc, kind } = await getRequestById(wasteRequestId);
+    if (!doc) return res.status(404).json({ message: "Waste request not found" });
 
-    // Basic pricing map (should match frontend). Consider centralizing later.
-    const pricePerType = {
-      Glass: 15,
-      Wood: 10,
-      Hazardous: 60,
-      Paper: 10,
-      Metal: 20,
-      Plastic: 30,
-      Organic: 30,
-      Electronics: 50,
-    };
+    // Prefer resident stored on the request (satisfies Payment schema required: true)
+    const residentId =
+      (doc.resident && String(doc.resident)) || residentIdFromBody || null;
 
-    const unitAmount = (pricePerType[wasteRequest.wasteType] || 0) * 100; // cents
-    const quantity = wasteRequest.quantity || 1;
+    const unitAmount = (pricePerType[doc.wasteType] || 0) * 100; // cents
+    const quantity = Number(doc.quantity || 1);
     const currency = process.env.STRIPE_CURRENCY || "usd";
 
     const stripe = getStripe();
@@ -49,7 +82,7 @@ exports.createCheckoutSession = async (req, res) => {
           price_data: {
             currency,
             product_data: {
-              name: `Waste collection - ${wasteRequest.wasteType}`,
+              name: `${kind === "special" ? "Special pickup" : "Waste collection"} - ${doc.wasteType}`,
             },
             unit_amount: unitAmount,
           },
@@ -57,8 +90,9 @@ exports.createCheckoutSession = async (req, res) => {
         },
       ],
       metadata: {
-        residentId,
-        wasteRequestId,
+        residentId,          // used in webhook/confirm to create Payment doc
+        wasteRequestId,      // record to mark paid
+        kind: kind || "normal",
       },
       success_url: `${process.env.CLIENT_URL}/payment?status=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/payment?status=cancelled`,
@@ -71,10 +105,12 @@ exports.createCheckoutSession = async (req, res) => {
   }
 };
 
+/* ------------------------------ webhook ------------------------------ */
 // Stripe webhook to finalize payment and update DB
 exports.webhook = async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
+
   try {
     const stripe = getStripe();
     event = stripe.webhooks.constructEvent(
@@ -82,124 +118,131 @@ exports.webhook = async (req, res) => {
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
-  log('Received Stripe webhook event:', event.type);
+    log("Received Stripe webhook event:", event.type);
   } catch (err) {
-  console.error("Webhook signature verification failed.", err.message);
+    console.error("Webhook signature verification failed.", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  // checkout.session completed path
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    const { residentId, wasteRequestId } = session.metadata || {};
-  log('checkout.session.completed metadata:', session.metadata);
+    const { residentId, wasteRequestId, kind } = session.metadata || {};
+    log("checkout.session.completed metadata:", session.metadata);
 
-    // Try to resolve residentId from WasteRequest if metadata doesn't include it
+    // Resolve resident if missing in metadata
     let resolvedResidentId = residentId;
     if (!resolvedResidentId && wasteRequestId) {
       try {
-        const wr = await WasteRequest.findById(wasteRequestId).lean();
-        if (wr && wr.resident) resolvedResidentId = wr.resident.toString();
+        const found = await getRequestById(wasteRequestId);
+        if (found.doc?.resident) resolvedResidentId = String(found.doc.resident);
       } catch (err) {
-        console.error('Failed to resolve residentId from WasteRequest in webhook:', err);
+        console.error("Failed to resolve residentId from request (webhook):", err);
       }
     }
 
     try {
-      // Mark payment in DB
       const amountTotal = session.amount_total ? session.amount_total / 100 : 0;
-      const newPayment = new Payment({
-        resident: resolvedResidentId || residentId || null,
+
+      await new Payment({
+        resident: resolvedResidentId || residentId, // Payment schema requires this
         amount: amountTotal,
         wasteRequests: wasteRequestId ? [wasteRequestId] : [],
         status: "completed",
-      });
-      await newPayment.save();
-  log('Saved new Payment:', newPayment._id);
+      }).save();
+      log("Saved new Payment for session:", session.id);
 
-      // Update request status if we have a wasteRequestId
       if (wasteRequestId) {
-        await WasteRequest.updateMany(
-          { _id: { $in: [wasteRequestId] } },
-          { $set: { status: "payment complete" } }
-        );
-  log('Updated WasteRequest status to payment complete for:', wasteRequestId);
+        await markPaid(wasteRequestId, kind);
+        log("Marked paid:", wasteRequestId, kind);
       } else {
-  warn('Webhook: no wasteRequestId in metadata; cannot update request status automatically.');
+        warn("Webhook: no wasteRequestId in metadata; cannot update request status.");
       }
     } catch (err) {
-  console.error("DB update after webhook failed:", err);
-      // Acknowledge to Stripe regardless; consider alerting/queueing for retry
+      console.error("DB update after webhook failed:", err);
+      // Still acknowledge to Stripe to avoid re-delivery storms
     }
   }
-  // Also handle payment_intent.succeeded events to cover different webhook flows
-  if (event.type === 'payment_intent.succeeded') {
+
+  // payment_intent.succeeded fallback path
+  if (event.type === "payment_intent.succeeded") {
     const pi = event.data.object;
-    console.log('payment_intent.succeeded received for:', pi.id);
-    // Try to find any sessions associated with this payment intent
+    log("payment_intent.succeeded for:", pi.id);
     try {
       const stripe = getStripe();
-      const sessions = await stripe.checkout.sessions.list({ payment_intent: pi.id, limit: 1 });
-      if (sessions && sessions.data && sessions.data.length > 0) {
-        const session = sessions.data[0];
-        const { residentId, wasteRequestId } = session.metadata || {};
+      const sessions = await stripe.checkout.sessions.list({
+        payment_intent: pi.id,
+        limit: 1,
+      });
 
-        // Resolve residentId if needed
+      if (sessions?.data?.length) {
+        const session = sessions.data[0];
+        const { residentId, wasteRequestId, kind } = session.metadata || {};
+
         let resolvedResidentId = residentId;
         if (!resolvedResidentId && wasteRequestId) {
           try {
-            const wr = await WasteRequest.findById(wasteRequestId).lean();
-            if (wr && wr.resident) resolvedResidentId = wr.resident.toString();
+            const found = await getRequestById(wasteRequestId);
+            if (found.doc?.resident) resolvedResidentId = String(found.doc.resident);
           } catch (err) {
-            console.error('Failed to resolve residentId from WasteRequest in payment_intent handler:', err);
+            console.error("Resolve residentId (PI path) failed:", err);
           }
         }
 
         const amountTotal = pi.amount_received ? pi.amount_received / 100 : 0;
-        const newPayment = new Payment({
-          resident: resolvedResidentId || residentId || null,
+
+        await new Payment({
+          resident: resolvedResidentId || residentId,
           amount: amountTotal,
           wasteRequests: wasteRequestId ? [wasteRequestId] : [],
-          status: 'completed',
-        });
-        await newPayment.save();
+          status: "completed",
+        }).save();
+
         if (wasteRequestId) {
-          await WasteRequest.updateMany({ _id: { $in: [wasteRequestId] } }, { $set: { status: 'payment complete' } });
-          console.log('Updated WasteRequest status to payment complete for (via payment_intent):', wasteRequestId);
+          await markPaid(wasteRequestId, kind);
+          log("Marked paid via PI:", wasteRequestId, kind);
         }
       } else {
-        console.warn('No checkout.session found for payment_intent', pi.id);
+        warn("No checkout.session found for payment_intent", pi.id);
       }
     } catch (err) {
-      console.error('Error handling payment_intent.succeeded:', err);
+      console.error("Error handling payment_intent.succeeded:", err);
     }
   }
 
   res.json({ received: true });
 };
 
+/* ------------------------------ confirm ------------------------------ */
 // Confirm checkout session without webhook
 exports.confirmCheckoutSession = async (req, res) => {
   const { sessionId } = req.query;
   if (!sessionId) {
     return res.status(400).json({ message: "Missing sessionId" });
   }
+
   try {
     const stripe = getStripe();
-    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
-  log('Confirm checkout session retrieved:', session.id, 'metadata:', session.metadata);
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ["payment_intent"],
+    });
+    log("Confirm session:", session.id, "metadata:", session.metadata);
+
     if (session.payment_status !== "paid") {
       return res.status(400).json({ message: "Payment not completed" });
     }
-    // Ensure we can still update DB even if metadata lacks residentId
+
     const amountTotal = session.amount_total ? session.amount_total / 100 : 0;
     const wasteRequestId = session.metadata?.wasteRequestId;
+    const kind = session.metadata?.kind;
+
     let resolvedResidentId = session.metadata?.residentId;
     if (!resolvedResidentId && wasteRequestId) {
       try {
-        const wr = await WasteRequest.findById(wasteRequestId).lean();
-        if (wr && wr.resident) resolvedResidentId = wr.resident.toString();
+        const found = await getRequestById(wasteRequestId);
+        if (found.doc?.resident) resolvedResidentId = String(found.doc.resident);
       } catch (err) {
-        console.error('Failed to resolve residentId from WasteRequest in confirm:', err);
+        console.error("Resolve residentId (confirm) failed:", err);
       }
     }
 
@@ -210,25 +253,24 @@ exports.confirmCheckoutSession = async (req, res) => {
         wasteRequests: [wasteRequestId],
         status: "completed",
       }).save();
-  log('Payment saved via confirm for wasteRequestId:', wasteRequestId);
+      log("Payment saved via confirm for:", wasteRequestId);
 
-      await WasteRequest.updateMany(
-        { _id: { $in: [wasteRequestId] } },
-        { $set: { status: "payment complete" } }
-      );
-  log('WasteRequest updated to payment complete for:', wasteRequestId);
+      await markPaid(wasteRequestId, kind);
+      log("Request updated to payment complete:", wasteRequestId, kind);
     } else {
-  warn('Confirm: no wasteRequestId in session metadata; unable to link payment to request');
+      warn("Confirm: no wasteRequestId in session metadata; unable to link payment");
     }
 
     return res.status(200).json({ message: "Payment confirmed", session });
   } catch (error) {
-  console.error("Confirm session failed:", error);
+    console.error("Confirm session failed:", error);
     return res.status(500).json({ message: "Failed to confirm session" });
   }
 };
 
-// Keep legacy endpoint for compatibility (non-Stripe mock payments)
+/* ----------------------- legacy/manual endpoints --------------------- */
+// (Kept identical to avoid breaking existing flows)
+// NOTE: this one only updates WasteRequest like before.
 exports.processPayment = async (req, res) => {
   const { residentId, amount, wasteRequestIds } = req.body;
   try {
@@ -243,42 +285,51 @@ exports.processPayment = async (req, res) => {
       { _id: { $in: wasteRequestIds } },
       { $set: { status: "payment complete" } }
     );
-    res.status(201).json({ message: "Payment processed and requests updated successfully." });
+    res
+      .status(201)
+      .json({ message: "Payment processed and requests updated successfully." });
   } catch (error) {
-  console.error("Payment processing error:", error);
-    res.status(500).json({ message: "Payment processing failed", error: error.message });
+    console.error("Payment processing error:", error);
+    res
+      .status(500)
+      .json({ message: "Payment processing failed", error: error.message });
   }
 };
 
-// Manual approve endpoint for admin/collector to mark a waste request as paid
+// Manual approve → try normal first, then special
 exports.approvePayment = async (req, res) => {
   const { wasteRequestId, approverId } = req.body;
   if (!wasteRequestId) {
-    return res.status(400).json({ message: 'Missing wasteRequestId' });
+    return res.status(400).json({ message: "Missing wasteRequestId" });
   }
   try {
-    // Create a Payment record (amount optional here - we can leave as 0 or pull from request)
-    const wr = await WasteRequest.findById(wasteRequestId).lean();
-    if (!wr) return res.status(404).json({ message: 'WasteRequest not found' });
+    let wr = await WasteRequest.findById(wasteRequestId).lean();
+    let kind = "normal";
 
-    const amount = wr.amount || 0; // if you store amount on request
+    if (!wr) {
+      wr = await SpecialPickup.findById(wasteRequestId).lean();
+      kind = wr ? "special" : null;
+    }
+    if (!wr) return res.status(404).json({ message: "Request not found" });
+
+    const amount = wr.amount || 0;
+
     const newPayment = new Payment({
       resident: wr.resident || null,
       amount,
       wasteRequests: [wasteRequestId],
-      status: 'completed',
+      status: "completed",
     });
     await newPayment.save();
 
-    await WasteRequest.updateMany(
-      { _id: { $in: [wasteRequestId] } },
-      { $set: { status: 'payment complete' } }
-    );
+    await markPaid(wasteRequestId, kind || "normal");
 
-  log(`Approved payment for wasteRequest ${wasteRequestId} by ${approverId || 'system'}`);
-    return res.status(200).json({ message: 'WasteRequest marked as paid', paymentId: newPayment._id });
+    log(`Approved payment for ${wasteRequestId} by ${approverId || "system"}`);
+    return res
+      .status(200)
+      .json({ message: "Request marked as paid", paymentId: newPayment._id });
   } catch (err) {
-  console.error('approvePayment error:', err);
-    return res.status(500).json({ message: 'Failed to approve payment' });
+    console.error("approvePayment error:", err);
+    return res.status(500).json({ message: "Failed to approve payment" });
   }
 };
