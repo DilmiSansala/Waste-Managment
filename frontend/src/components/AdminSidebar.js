@@ -7,7 +7,8 @@ import {
   FaSignOutAlt,
   FaTruck,
   FaBars,
-  FaClipboardList
+  FaClipboardList,
+   FaCar,
 } from "react-icons/fa"; // Import icons from react-icons
 import logo from "../images/leaf.png"; // Ensure the correct path to your logo is provided
 
@@ -77,6 +78,20 @@ const AdminSidebar = () => {
                 Peak Monitoring
               </Link>
             </li>
+
+
+
+            {/* ✅ New Vehicles link */}
+            <li>
+              <Link
+                to="/admin/vehicles"
+                className="flex items-center text-[#185233] hover:bg-gray-100 px-4 py-2 rounded-md"
+              >
+                <FaCar className="mr-3" />
+                Vehicles
+              </Link>
+            </li>
+
             <li>
               <Link
                 to="/admin-allocate-resources"
