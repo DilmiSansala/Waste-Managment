@@ -84,7 +84,7 @@ const ScheduleForm = () => {
       const fetchPendingRequests = async () => {
         try {
           const response = await axios.get(
-            `http://localhost:3050/api/requests/byCenter/${selectedCenter}`
+            `http://localhost:3050/api/specialPickup/byCenter/${selectedCenter}`
           );
           setPendingRequests(response.data);
           console.log(response.data);
