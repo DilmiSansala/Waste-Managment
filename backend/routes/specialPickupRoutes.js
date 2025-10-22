@@ -12,6 +12,7 @@ router.get("/", sp.getAllRequest);
 
 // ----- Param routes LAST -----
 router.get("/byCenter/:centerId", sp.getRequestsByCenter);
+router.get("/getByCenter/:centerId", sp.getRequestsByCenter); 
 router.put("/:id/collected", sp.markAsCollected);
 router.put("/:id/pending", sp.markAsPending);
 router.put("/:id", protect, sp.updateSpecialPickup);
