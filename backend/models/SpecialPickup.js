@@ -9,10 +9,10 @@ const SpecialPickupSchema = new mongoose.Schema({
   },
   wasteType: { type: String, required: true },
 
-  // make numeric
+  
   quantity: { type: Number, required: true },
 
-  //  link to a center (optional for older docs)
+
   collectionCenter: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CollectionCenter',
